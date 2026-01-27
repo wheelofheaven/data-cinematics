@@ -1,0 +1,11 @@
+# Video Processing Manifest
+# Configure video processing settings for each source file
+
+videos:
+  - filename: "veo-earth-creation.mp4"
+    category: "hero"           # CDN category: hero, wiki, timeline, etc.
+    quality: "medium"          # low (CRF 40), medium (CRF 30), high (CRF 23)
+    crop_watermark: true       # Crop bottom portion (for AI watermarks)
+    crop_height: 50            # Pixels to crop from bottom
+    output_name: "earth-creation"  # Output filename (without extension)
+    enabled: true

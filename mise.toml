@@ -1,0 +1,84 @@
+# Video Processing Pipeline Tasks
+# Usage: mise run <task>
+
+[tasks.setup]
+description = "Set up Python virtual environment and install dependencies"
+run = """
+python3 -m venv venv
+source venv/bin/activate
+pip install -r scripts/requirements.txt
+"""
+
+[tasks.process]
+description = "Process all enabled videos from manifest"
+run = "source venv/bin/activate && python scripts/process_videos.py"
+
+[tasks.dry-run]
+description = "Preview processing without creating files"
+run = "source venv/bin/activate && python scripts/process_videos.py --dry-run"
+
+[tasks.process-force]
+description = "Reprocess all videos (overwrite existing)"
+run = "source venv/bin/activate && python scripts/process_videos.py --force"
+
+[tasks.process-verbose]
+description = "Process with verbose output"
+run = "source venv/bin/activate && python scripts/process_videos.py --verbose"
+
+[tasks.deploy]
+description = "Deploy processed videos to CDN"
+run = "source venv/bin/activate && python scripts/deploy_to_cdn.py"
+
+[tasks.deploy-dry-run]
+description = "Preview deployment without copying files"
+run = "source venv/bin/activate && python scripts/deploy_to_cdn.py --dry-run"
+
+[tasks.full-pipeline]
+description = "Process all videos and deploy to CDN"
+run = "mise run process && mise run deploy"
+
+[tasks.clean]
+description = "Remove all processed files"
+run = """
+read -p "Remove all processed files? [y/N] " confirm
+if [[ $confirm == [yY] ]]; then
+    rm -rf processed/*.webm processed/*.avif
+    echo "Cleaned processed directory"
+fi
+"""
+
+[tasks.check]
+description = "Check FFmpeg and dependencies"
+run = """
+echo "Checking FFmpeg..."
+ffmpeg -version | head -1
+echo ""
+echo "Checking AV1 encoders..."
+ffmpeg -encoders 2>/dev/null | grep -E "(libsvtav1|libaom-av1)"
+echo ""
+echo "Checking Python environment..."
+if [ -d "venv" ]; then
+    source venv/bin/activate
+    pip list | grep -E "(Pillow|PyYAML|tqdm|pillow-avif)"
+else
+    echo "Virtual environment not found. Run: mise run setup"
+fi
+"""
+
+[tasks.info]
+description = "Show information about processed videos"
+run = """
+echo "Processed videos:"
+ls -lh processed/*.webm 2>/dev/null || echo "  No processed videos found"
+echo ""
+echo "Poster images:"
+ls -lh processed/*.avif 2>/dev/null || echo "  No poster images found"
+"""
+
+[tasks.count]
+description = "Count raw vs processed videos"
+run = """
+echo "Raw videos: $(ls -1 raw/*.mp4 raw/*.mov raw/*.webm 2>/dev/null | wc -l | tr -d ' ')"
+echo "Manifest entries: $(grep -c 'filename:' manifest.yaml 2>/dev/null || echo 0)"
+echo "Processed videos: $(ls -1 processed/*.webm 2>/dev/null | wc -l | tr -d ' ')"
+"""
