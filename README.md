@@ -114,6 +114,14 @@ git commit -m "Add processed videos"
 git push
 ```
 
+## Documentation
+
+For the broader pipeline context (alongside the image pipeline + OG
+card renderer) and where the processed output is served from, see
+the [Pipelines guide](https://docs.wheelofheaven.world/contributing/dev/pipelines/)
+and [Architecture → Sites → assets](https://docs.wheelofheaven.world/architecture/sites/assets/)
+on docs.wheelofheaven.world.
+
 ## License
 
 CC0-1.0
