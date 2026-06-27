@@ -1,0 +1,61 @@
+{
+  "$comment": "Shared render spec for the cinematic audiobook. Read directly by the ffmpeg compositor; mirrored by the bifrost web cinematic view (keep values in sync — this file is the source of truth). All times in seconds, sizes in px at 1080p output.",
+  "id": "tbwtt",
+  "output": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "video_codec": "libx264",
+    "crf": 18,
+    "preset": "slow",
+    "pix_fmt": "yuv420p",
+    "faststart": true
+  },
+  "scene": {
+    "fit": "cover",
+    "crossfade": 0.8,
+    "ken_burns": {
+      "enabled": true,
+      "zoom_from": 1.0,
+      "zoom_to": 1.08,
+      "direction": "alternate"
+    },
+    "default_image": "default",
+    "missing_image_fallback": "gradient"
+  },
+  "caption": {
+    "font_family": "Inter",
+    "font_weight": 600,
+    "font_size": 46,
+    "line_height": 1.3,
+    "color": "#F4F4F5",
+    "stroke_color": "#0A0A0F",
+    "stroke_width": 3,
+    "shadow": true,
+    "max_width_pct": 78,
+    "safe_area_bottom_pct": 12,
+    "align": "center",
+    "fade": 0.25,
+    "speaker_label": {
+      "enabled": true,
+      "font_size": 24,
+      "color": "#A78BFA",
+      "uppercase": true,
+      "letter_spacing": 2,
+      "hide_for_kinds": ["body"]
+    },
+    "karaoke": {
+      "enabled": false,
+      "active_color": "#FDE047"
+    }
+  },
+  "overlay": {
+    "vignette": true,
+    "scrim": {
+      "enabled": true,
+      "from_pct": 55,
+      "color": "#000000",
+      "max_opacity": 0.6
+    }
+  }
+}

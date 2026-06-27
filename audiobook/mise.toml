@@ -1,0 +1,16 @@
+# Cinematic audiobook pipeline tasks
+# Usage: mise run <task>  (from data-cinematics/audiobook/)
+
+BOOK = "the-book-which-tells-the-truth"
+
+[tasks.timeline]
+description = "Build cinematic timeline JSON for the default book (EN, all chapters)"
+run = "python3 build_timeline.py --book $BOOK --lang en"
+
+[tasks.timeline-dry-run]
+description = "Preview cinematic timeline build without writing files"
+run = "python3 build_timeline.py --book $BOOK --lang en --dry-run"
+
+[tasks.timeline-all]
+description = "Build cinematic timeline JSON for the default book, all languages"
+run = "python3 build_timeline.py --book $BOOK --all-langs"
