@@ -106,7 +106,7 @@ def render_caption_png(cap, spec, font, speaker_font, out_path, W, H):
     line_h = int(c["font_size"] * c["line_height"])
     lines = wrap_lines(d, cap["text"], font, max_w)
 
-    show_speaker = bool(cap.get("speaker")) and cap.get("kind") not in (None, "body")
+    show_speaker = bool(cap.get("speaker")) and cap.get("kind") not in (None, "body", "intro")
     speaker_h = int(speaker_font.size * 1.8) if show_speaker else 0
 
     block_h = line_h * len(lines) + speaker_h
