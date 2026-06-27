@@ -14,3 +14,27 @@ run = "python3 build_timeline.py --book $BOOK --lang en --dry-run"
 [tasks.timeline-all]
 description = "Build cinematic timeline JSON for the default book, all languages"
 run = "python3 build_timeline.py --book $BOOK --all-langs"
+
+# --- Phase 3: ffmpeg video compositor ---------------------------------------
+# Needs ffmpeg (libx264, aac, zoompan, xfade, vignette, qtrle) + a Pillow venv.
+
+[tasks.setup]
+description = "Create the compositor venv (Pillow) for compose_video.py"
+run = """
+python3 -m venv venv
+./venv/bin/pip install --quiet --upgrade pip
+./venv/bin/pip install --quiet -r requirements.txt
+echo 'compositor venv ready (./venv)'
+"""
+
+[tasks.compose-preview]
+description = "Render a 30s preview of chapter 1 (smoke test)"
+run = "./venv/bin/python compose_video.py --book $BOOK --lang en --chapters 1 --preview 30"
+
+[tasks.compose]
+description = "Render all chapters of the default book to MP4 (EN) -> ./out/"
+run = "./venv/bin/python compose_video.py --book $BOOK --lang en"
+
+[tasks.compose-all-langs]
+description = "Render every language of the default book to MP4 -> ./out/"
+run = "./venv/bin/python compose_video.py --book $BOOK --all-langs"

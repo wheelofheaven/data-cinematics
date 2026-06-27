@@ -59,15 +59,46 @@ Output schema (`c{n}.cinematic.json`):
 }
 ```
 
-## Phase 3 — compose the video (planned)
+## Phase 3 — compose the video (implemented)
 
-`compose_video.py` (to be built once scene images + the web look are locked):
-ASS captions from `captions[]`, zoompan slideshow from `scenes[]`, voice+ambient
-mix, burn + encode per `style/<book>.json`. Batchable over chapters × languages.
+`compose_video.py` renders a YouTube-ready MP4 per chapter per language from the
+`cinematic.json` + scene images + audio + `style/<id>.json`. It is the video
+renderer of the same timeline the web cinematic view plays, so they match.
+
+Per chapter: each scene becomes a Ken-Burns `zoompan` clip; an `xfade` chain
+(offset = `scene.start`, clip = segment + crossfade) keeps the video
+**sync-locked** to the audio (trimmed to the audio length); then `vignette`,
+the caption overlay, and the watermark; audio is voice + ambient (`amix`).
+
+Captions and the watermark are pre-rendered with **Pillow** into a transparent
+caption track (qtrle) and a PNG — so no libass/drawtext is required (works on a
+minimal ffmpeg). Caption styling/timing come straight from the render spec and
+`captions[]`. Missing scene art falls back to `default.jpg`, then a gradient.
+
+Requirements: `ffmpeg` with `libx264, aac, zoompan, xfade, vignette, qtrle`; a
+Pillow venv (`mise run setup`). Caption font: Space Grotesk (matches the web
+`--font-family-lead`), falling back to a system sans.
+
+```bash
+mise run setup            # one-time: create ./venv with Pillow
+mise run compose-preview  # 30s smoke test of chapter 1 -> ./out/
+mise run compose          # all EN chapters of the default book -> ./out/
+mise run compose-all-langs
+
+# direct:
+./venv/bin/python compose_video.py --book <slug> --lang en --chapters 1
+./venv/bin/python compose_video.py --book <slug> --lang en --chapters 1 --preview 25
+```
+
+Output: `./out/<book>/c<n>.<lang>.mp4` (gitignored). Deterministic and faster
+than realtime; batchable over chapters × languages.
 
 ## mise tasks
 
 ```bash
-mise run timeline      # build EN timelines for the default book
-mise run timeline-all  # build all languages
+mise run timeline         # build EN timelines for the default book
+mise run timeline-all     # build all languages
+mise run setup            # create the compositor venv (Pillow)
+mise run compose-preview  # 30s smoke test
+mise run compose          # render all EN chapters to MP4
 ```

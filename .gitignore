@@ -19,3 +19,6 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Rendered audiobook videos (build artifacts)
+audiobook/out/

@@ -1,0 +1,3 @@
+# Compositor (compose_video.py) — caption + watermark rendering.
+# ffmpeg is a system dependency (brew install ffmpeg); see README.
+Pillow>=10
