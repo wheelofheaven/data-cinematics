@@ -98,7 +98,7 @@ def wrap_lines(draw, text, font, max_w):
     return lines
 
 
-def render_caption_png(cap, spec, font, speaker_font, out_path, W, H):
+def render_caption_png(cap, show_speaker, spec, font, speaker_font, out_path, W, H):
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     c = spec["caption"]
@@ -106,7 +106,6 @@ def render_caption_png(cap, spec, font, speaker_font, out_path, W, H):
     line_h = int(c["font_size"] * c["line_height"])
     lines = wrap_lines(d, cap["text"], font, max_w)
 
-    show_speaker = bool(cap.get("speaker")) and cap.get("kind") not in (None, "body", "intro")
     speaker_h = int(speaker_font.size * 1.8) if show_speaker else 0
 
     block_h = line_h * len(lines) + speaker_h
@@ -151,6 +150,7 @@ def build_caption_track(captions, total, spec, fps, tmp, W, H):
 
     entries = []  # (file, duration)
     cursor = 0.0
+    prev_speaker = None
     for i, cap in enumerate(captions):
         start, end = float(cap["start"]), float(cap["end"])
         if end > total:
@@ -159,8 +159,13 @@ def build_caption_track(captions, total, spec, fps, tmp, W, H):
             break
         if start > cursor:
             entries.append((transparent, start - cursor))
+        # Label appears on a speaker change (not the intro), so each new
+        # speaker's run is announced once (NARRATOR / RAËL / YAHWEH).
+        show_speaker = (bool(cap.get("speaker")) and cap.get("kind") != "intro"
+                        and cap.get("speaker") != prev_speaker)
+        prev_speaker = cap.get("speaker")
         png = tmp / f"cap{i}.png"
-        render_caption_png(cap, spec, font, sp_font, png, W, H)
+        render_caption_png(cap, show_speaker, spec, font, sp_font, png, W, H)
         entries.append((png, max(0.05, end - start)))
         cursor = end
     if cursor < total:
