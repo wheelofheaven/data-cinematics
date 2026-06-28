@@ -49,6 +49,15 @@
       "active_color": "#FDE047"
     }
   },
+  "watermark": {
+    "$comment": "Top-left brand lockup (logomark + wordmark SVGs, recolored). Mirrors the web .cinematic__brand.",
+    "color": "#F4F4F5",
+    "mark_height": 32,
+    "wordmark_height": 18,
+    "gap": 12,
+    "pad_x": 40,
+    "pad_y": 34
+  },
   "overlay": {
     "vignette": true,
     "scrim": {

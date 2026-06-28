@@ -46,7 +46,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 REPO = Path(__file__).resolve().parents[2]
 ASSETS = REPO / "assets.wheelofheaven.world"
@@ -54,6 +54,7 @@ AUDIO = ASSETS / "audio"
 IMAGES = ASSETS / "images" / "cinematic"
 STYLE_DIR = Path(__file__).resolve().parent / "style"
 OUT_DIR = Path(__file__).resolve().parent / "out"
+BRAND_DIR = Path(__file__).resolve().parent / "brand"  # logomark.svg + wordmark.svg (mirror bifrost)
 
 # Caption font: the web cinematic caption uses --font-family-lead (Space
 # Grotesk). Match it; fall back to a common sans if absent.
@@ -191,20 +192,53 @@ def build_caption_track(captions, total, spec, fps, tmp, W, H):
 
 # --- Watermark ---------------------------------------------------------------
 
+def _rasterize_svg(svg_path, height, tmp, color):
+    """Render a currentColor SVG to a transparent PNG at the given height,
+    recolored to `color`, via resvg. Returns a Pillow RGBA image."""
+    src = svg_path.read_text()
+    src = src.replace("currentColor", color).replace("currentcolor", color)
+    tmp_svg = tmp / f"{svg_path.stem}.recolor.svg"
+    tmp_svg.write_text(src)
+    png = tmp / f"{svg_path.stem}.{height}.png"
+    run(["resvg", str(tmp_svg), str(png), "--height", str(int(height))])
+    return Image.open(png).convert("RGBA")
+
+
 def build_watermark(tmp, spec, W, H):
-    """Top-left brand wordmark watermark (Pillow text; opaque with shadow)."""
-    font_path = find_font()
-    font = load_font(font_path, 30, 600)
-    pad = 36
-    text = "WHEEL OF HEAVEN"
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.text((pad + 2, pad + 2), text, font=font, fill=(0, 0, 0, 180))
-    d.text((pad, pad), text, font=font, fill=(244, 244, 245, 255),
-           stroke_width=1, stroke_fill=(0, 0, 0, 160))
-    wm = tmp / "watermark.png"
-    img.save(wm)
-    return wm
+    """Top-left brand lockup watermark: the real logomark (wheel) + wordmark
+    SVGs (so the typeface matches the brand), recolored opaque with a soft drop
+    shadow for legibility. Mirrors the web cinematic view's .cinematic__brand."""
+    wm = spec.get("watermark", {})
+    color = wm.get("color", "#f4f4f5")
+    mark_h = wm.get("mark_height", 32)
+    word_h = wm.get("wordmark_height", 18)
+    gap = wm.get("gap", 12)
+    pad_x = wm.get("pad_x", 40)
+    pad_y = wm.get("pad_y", 34)
+
+    mark = _rasterize_svg(BRAND_DIR / "logomark.svg", mark_h, tmp, color)
+    word = _rasterize_svg(BRAND_DIR / "wordmark.svg", word_h, tmp, color)
+
+    lock_h = max(mark.height, word.height)
+    lock_w = mark.width + gap + word.width
+    lock = Image.new("RGBA", (lock_w, lock_h), (0, 0, 0, 0))
+    lock.alpha_composite(mark, (0, (lock_h - mark.height) // 2))
+    lock.alpha_composite(word, (mark.width + gap, (lock_h - word.height) // 2))
+
+    # Soft drop shadow (≈ web's drop-shadow(0 1px 4px rgba(0,0,0,.7))).
+    shadow_alpha = lock.split()[3].point(lambda a: int(a * 0.7))
+    shadow = Image.new("RGBA", (lock_w, lock_h), (0, 0, 0, 0))
+    blk = Image.new("RGBA", (lock_w, lock_h), (0, 0, 0, 255))
+    blk.putalpha(shadow_alpha)
+    shadow.alpha_composite(blk)
+    shadow = shadow.filter(ImageFilter.GaussianBlur(2))
+
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    layer.alpha_composite(shadow, (pad_x, pad_y + 1))
+    layer.alpha_composite(lock, (pad_x, pad_y))
+    out = tmp / "watermark.png"
+    layer.save(out)
+    return out
 
 
 # --- ffmpeg helpers ----------------------------------------------------------
