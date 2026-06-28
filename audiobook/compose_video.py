@@ -279,6 +279,15 @@ def _hex(c):
     return tuple(int(c[i:i+2], 16) for i in (0, 2, 4))
 
 
+# Localized "Chapter N" label for the title card. Falls back to English.
+# CJK/Hebrew also need a glyph-capable caption font (Space Grotesk is Latin).
+CHAPTER_LABEL = {
+    "en": "CHAPTER {n}", "fr": "CHAPITRE {n}", "de": "KAPITEL {n}",
+    "es": "CAPÍTULO {n}", "ru": "ГЛАВА {n}", "ja": "第{n}章",
+    "ko": "제{n}장", "zh": "第{n}章", "zh-Hant": "第{n}章", "he": "פרק {n}",
+}
+
+
 def resolve_titles(book, lang, chapter):
     """(book_title, subtitle, chapter_title) from data-library meta + the audio
     manifest, falling back to a humanized slug."""
@@ -353,7 +362,8 @@ def build_intro_cards(spec, book, lang, chapter, tmp, W, H):
     y += int(H * 0.02)
     d.line([(W * 0.42, y), (W * 0.58, y)], fill=accent + (220,), width=2)
     y += int(H * 0.03)
-    chap_line = f"CHAPTER {chapter}" + (f"   ·   {title_chap.upper()}" if title_chap else "")
+    chap_word = CHAPTER_LABEL.get(lang, CHAPTER_LABEL["en"]).format(n=chapter)
+    chap_line = chap_word + (f"   ·   {title_chap.upper()}" if title_chap else "")
     y = centered(chap_line, ch_font, y, accent)
     if subtitle:
         y += int(H * 0.015)
