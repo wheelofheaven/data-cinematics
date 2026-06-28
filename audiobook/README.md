@@ -68,7 +68,8 @@ renderer of the same timeline the web cinematic view plays, so they match.
 Per chapter: each scene becomes a Ken-Burns `zoompan` clip; an `xfade` chain
 (offset = `scene.start`, clip = segment + crossfade) keeps the video
 **sync-locked** to the audio (trimmed to the audio length); then `vignette`,
-the caption overlay, and the watermark; audio is voice + ambient (`amix`).
+the caption overlay, and the watermark; audio is voice + ambient + optional
+score (`amix`).
 
 Captions and the watermark are pre-rendered with **Pillow** into a transparent
 caption track (qtrle) and a PNG — so no libass/drawtext is required (works on a
@@ -94,6 +95,49 @@ mise run compose-all-langs
 
 Output: `./out/<book>/c<n>.<lang>.mp4` (gitignored). Deterministic and faster
 than realtime; batchable over chapters × languages.
+
+### Intro cards (YouTube-ready)
+
+Each chapter video is prefaced by a two-card intro: a **brand card** (logomark +
+wordmark fading up from black) then a **title card** (book title, `CHAPTER N ·
+TITLE`, subtitle over a dimmed backdrop). Titles resolve automatically from
+`data-library/<book>/_meta.json` (`titles`/`subtitles` per lang) and the audio
+`manifest.json` (`chapters[n].title`). Voice + ambient are delayed behind the
+intro so narration starts with the chapter; the watermark is gated to appear only
+after it. Configure via the `intro` block in `style/<book>.json`
+(`brand_seconds`, `title_seconds`, `backdrop`, `bg_color`; `enabled: false` to
+skip).
+
+### Score bed (video export only)
+
+An optional subtle musical underscore, mixed **under** voice + ambient — this is
+**never** added to the web player, which stays narration + ambient SFX. It plays
+from `t=0` (so the intro cards are scored), is a touch more present under the
+voice-free intro, then ramps down to a quiet bed beneath the narration and fades
+out at the end.
+
+Generate the bed once (ElevenLabs Music API, with a sound-generation fallback;
+reads `ELEVENLABS_API_KEY` from `data-library/.env`):
+
+```bash
+./venv/bin/python generate_score.py --name woh-underscore --length 120
+# -> score/woh-underscore.opus  (committed asset; raw API cache is gitignored)
+```
+
+Then enable it in `style/<book>.json`:
+
+```jsonc
+"score": {
+  "enabled": true,
+  "file": "woh-underscore.opus",  // in score/
+  "gain": 0.11,                   // bed level under narration
+  "intro_gain": 0.34,            // more present under the voice-free intro
+  "fade_in": 2.5, "fade_out": 5.0
+}
+```
+
+Levels are tunable with an instant re-render (no regeneration); change the prompt
+in `generate_score.py` for a different mood.
 
 ## mise tasks
 

@@ -55,6 +55,7 @@ IMAGES = ASSETS / "images" / "cinematic"
 STYLE_DIR = Path(__file__).resolve().parent / "style"
 OUT_DIR = Path(__file__).resolve().parent / "out"
 BRAND_DIR = Path(__file__).resolve().parent / "brand"  # logomark.svg + wordmark.svg (mirror bifrost)
+SCORE_DIR = Path(__file__).resolve().parent / "score"  # subtle musical bed(s), video-export only
 
 # Caption font: the web cinematic caption uses --font-family-lead (Space
 # Grotesk). Match it; fall back to a common sans if absent.
@@ -393,6 +394,17 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
         return None
     has_ambient = ambient.exists()
 
+    # Optional subtle musical score bed (video export only — never in the web
+    # player). Plays from t=0 under the intro cards, loops across the whole
+    # chapter beneath voice + ambient, fades in/out. Spec: style.score.
+    score_cfg = spec.get("score", {})
+    score_file = score_cfg.get("file")
+    score_path = (SCORE_DIR / score_file) if score_file else None
+    has_score = bool(score_cfg.get("enabled", False)) and score_path and score_path.exists()
+    if score_cfg.get("enabled") and not has_score:
+        print(f"  c{chapter}: score enabled but {score_path} missing, skipping score",
+              file=sys.stderr)
+
     tmp = Path(tempfile.mkdtemp(prefix=f"woh_cine_c{chapter}_"))
     try:
         intro_cfg = spec.get("intro", {})
@@ -450,6 +462,13 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
             intro_labels.append((f"iv{k}", off))
             next_idx += 1
 
+        # score input (looped to fill the whole video, trimmed in the graph)
+        score_idx = None
+        if has_score:
+            cmd += ["-stream_loop", "-1", "-i", str(score_path)]
+            score_idx = next_idx
+            next_idx += 1
+
         # --- video filtergraph: intro cards then the scene xfade chain ---
         # `clips` = ordered (label, transition-offset); offset is the absolute
         # time the crossfade INTO that clip begins. Scenes shift by intro_total.
@@ -472,17 +491,46 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
         wm_en = f":enable='gte(t,{intro_total:.3f})'" if intro_total > 0 else ""
         fc.append(f"[vcap][{wm_idx}:v]overlay=0:0:format=auto{wm_en},format=yuv420p[vout]")
 
-        # --- audio (delayed behind the intro so narration starts with ch.1) ---
+        # --- audio ---
+        # Voice + ambient are delayed behind the intro so narration starts
+        # with the chapter; the score plays from t=0 under the title cards.
         d_ms = int(round(intro_total * 1000))
         ad = f"adelay={d_ms}:all=1," if d_ms > 0 else ""
+        parts = []
+        fc.append(f"[{voice_idx}:a]{ad}volume=1.0[va]")
+        parts.append("[va]")
         if has_ambient:
+            fc.append(f"[{amb_idx}:a]{ad}volume=0.30[aa]")
+            parts.append("[aa]")
+        if has_score:
+            end = total + intro_total
+            sg = float(score_cfg.get("gain", 0.12))
+            ig = float(score_cfg.get("intro_gain", max(sg, 0.28)))
+            fin = float(score_cfg.get("fade_in", 2.0))
+            fout = float(score_cfg.get("fade_out", 4.0))
+            fo_start = max(0.0, end - fout)
+            # Louder under the (voice-free) intro cards, ramping down to the
+            # base bed level over `ramp` seconds, landing at base just as the
+            # narration comes in. Constant gain when there's no intro.
+            if intro_total > 0 and ig != sg:
+                ramp = min(1.5, intro_total)
+                r0 = max(0.0, intro_total - ramp)
+                vol = (f"volume='if(lt(t,{r0:.3f}),{ig},"
+                       f"if(lt(t,{intro_total:.3f}),"
+                       f"{ig}+({sg}-{ig})*(t-{r0:.3f})/{ramp:.3f},{sg}))':eval=frame")
+            else:
+                vol = f"volume={sg}"
             fc.append(
-                f"[{voice_idx}:a]{ad}volume=1.0[va];[{amb_idx}:a]{ad}volume=0.30[aa];"
-                f"[va][aa]amix=inputs=2:duration=longest:normalize=0[aout]"
+                f"[{score_idx}:a]atrim=0:{end:.3f},asetpts=PTS-STARTPTS,"
+                f"{vol},afade=t=in:st=0:d={fin:.3f},"
+                f"afade=t=out:st={fo_start:.3f}:d={fout:.3f}[sc]"
             )
+            parts.append("[sc]")
+        if len(parts) == 1:
+            amap = parts[0]
         else:
-            fc.append(f"[{voice_idx}:a]{ad}volume=1.0[aout]")
-        amap = "[aout]"
+            fc.append(f"{''.join(parts)}amix=inputs={len(parts)}:duration=longest:normalize=0[aout]")
+            amap = "[aout]"
 
         cmd += ["-filter_complex", ";".join(fc),
                 "-map", "[vout]", "-map", amap,

@@ -22,3 +22,6 @@ Thumbs.db
 
 # Rendered audiobook videos (build artifacts)
 audiobook/out/
+
+# Raw score-generation API cache (the committed asset is score/*.opus)
+audiobook/.score_cache/

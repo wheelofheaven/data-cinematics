@@ -57,6 +57,15 @@
     "backdrop": "default",
     "bg_color": "#05060A"
   },
+  "score": {
+    "$comment": "Subtle musical underscore — VIDEO EXPORT ONLY, never in the web player. Loops under voice + ambient SFX from t=0 (plays beneath the intro cards too). Generate with generate_score.py.",
+    "enabled": true,
+    "file": "woh-underscore.opus",
+    "gain": 0.11,
+    "intro_gain": 0.34,
+    "fade_in": 2.5,
+    "fade_out": 5.0
+  },
   "watermark": {
     "$comment": "Top-left brand lockup (logomark + wordmark SVGs, recolored). Mirrors the web .cinematic__brand.",
     "color": "#F4F4F5",
