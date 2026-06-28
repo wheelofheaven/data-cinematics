@@ -76,8 +76,10 @@ minimal ffmpeg). Caption styling/timing come straight from the render spec and
 `captions[]`. Missing scene art falls back to `default.jpg`, then a gradient.
 
 Requirements: `ffmpeg` with `libx264, aac, zoompan, xfade, vignette, qtrle`; a
-Pillow venv (`mise run setup`). Caption font: Space Grotesk (matches the web
-`--font-family-lead`), falling back to a system sans.
+Pillow venv (`mise run setup`); `resvg` (`brew install resvg`) to rasterize the
+brand watermark SVGs (`brand/logomark.svg` + `brand/wordmark.svg`, mirrored from
+bifrost). Caption font: Space Grotesk (matches the web `--font-family-lead`),
+falling back to a system sans.
 
 ```bash
 mise run setup            # one-time: create ./venv with Pillow
