@@ -139,8 +139,10 @@ def render_caption_png(cap, show_speaker, spec, font, speaker_font, out_path, W,
     img.save(out_path)
 
 
-def build_caption_track(captions, total, spec, fps, tmp, W, H):
-    """Render caption PNGs + a concat list into a transparent qtrle .mov."""
+def build_caption_track(captions, total, spec, fps, tmp, W, H, offset=0.0):
+    """Render caption PNGs + a concat list into a transparent qtrle .mov.
+    `offset` prepends that many transparent seconds (so captions line up with
+    audio that's been delayed behind an intro)."""
     font_path = find_font()
     c = spec["caption"]
     font = load_font(font_path, c["font_size"], c.get("font_weight"))
@@ -150,6 +152,8 @@ def build_caption_track(captions, total, spec, fps, tmp, W, H):
     Image.new("RGBA", (W, H), (0, 0, 0, 0)).save(transparent)
 
     entries = []  # (file, duration)
+    if offset > 0:
+        entries.append((transparent, offset))
     cursor = 0.0
     prev_speaker = None
     for i, cap in enumerate(captions):
@@ -267,6 +271,99 @@ def resolve_image(book, scene_image):
     return d if d.exists() else None
 
 
+# --- Intro / title cards -----------------------------------------------------
+
+def _hex(c):
+    c = c.lstrip("#")
+    return tuple(int(c[i:i+2], 16) for i in (0, 2, 4))
+
+
+def resolve_titles(book, lang, chapter):
+    """(book_title, subtitle, chapter_title) from data-library meta + the audio
+    manifest, falling back to a humanized slug."""
+    book_title = book.replace("-", " ").title()
+    subtitle = ""
+    meta = REPO / "data-library" / book / "_meta.json"
+    if meta.exists():
+        m = json.loads(meta.read_text())
+        book_title = (m.get("titles") or {}).get(lang) or book_title
+        subtitle = (m.get("subtitles") or {}).get(lang, "")
+    chapter_title = ""
+    man = AUDIO / lang / book / "manifest.json"
+    if man.exists():
+        for c in json.loads(man.read_text()).get("chapters", []):
+            if c.get("n") == chapter:
+                chapter_title = c.get("title", "")
+    return book_title, subtitle, chapter_title
+
+
+def build_intro_cards(spec, book, lang, chapter, tmp, W, H):
+    """Render the brand card + the book/chapter title card. Returns a list of
+    (png_path, seconds)."""
+    intro = spec.get("intro", {})
+    bg = _hex(intro.get("bg_color", "#05060a"))
+    font_path = find_font()
+    title_book, subtitle, title_chap = resolve_titles(book, lang, chapter)
+
+    def paste_center(card, png, cx, cy):
+        card.alpha_composite(png, (int(cx - png.width / 2), int(cy - png.height / 2)))
+
+    # --- brand card: logomark + wordmark on the dark backdrop ---
+    brand = Image.new("RGBA", (W, H), bg + (255,))
+    mark = _rasterize_svg(BRAND_DIR / "logomark.svg", int(H * 0.16), tmp, "#f4f4f5")
+    word = _rasterize_svg(BRAND_DIR / "wordmark.svg", int(H * 0.05), tmp, "#f4f4f5")
+    paste_center(brand, mark, W / 2, H / 2 - word.height)
+    paste_center(brand, word, W / 2, H / 2 + mark.height * 0.55)
+    brand_png = tmp / "intro_brand.png"
+    brand.save(brand_png)
+
+    # --- title card: dimmed backdrop + titles ---
+    title = Image.new("RGBA", (W, H), bg + (255,))
+    bd = resolve_image(book, intro.get("backdrop", "default"))
+    if bd:
+        im = Image.open(bd).convert("RGB")
+        sc = max(W / im.width, H / im.height)
+        im = im.resize((int(im.width * sc), int(im.height * sc)))
+        im = im.crop(((im.width - W) // 2, (im.height - H) // 2,
+                      (im.width - W) // 2 + W, (im.height - H) // 2 + H))
+        title.alpha_composite(im.convert("RGBA"), (0, 0))
+        scrim = Image.new("RGBA", (W, H), (0, 0, 0, 150))
+        title.alpha_composite(scrim)
+    d = ImageDraw.Draw(title)
+    smallmark = _rasterize_svg(BRAND_DIR / "logomark.svg", int(H * 0.06), tmp, "#f4f4f5")
+    paste_center(title, smallmark, W / 2, H * 0.26)
+
+    bt_font = load_font(font_path, int(H * 0.075), 600)
+    ch_font = load_font(font_path, int(H * 0.032), 600)
+    sub_font = load_font(font_path, int(H * 0.026), 400)
+    accent = _hex(spec["caption"]["speaker_label"]["color"])
+
+    def centered(text, font, y, fill):
+        for line in wrap_lines(d, text, font, int(W * 0.8)):
+            lw = d.textlength(line, font=font)
+            d.text(((W - lw) / 2 + 2, y + 2), line, font=font, fill=(0, 0, 0, 170))
+            d.text(((W - lw) / 2, y), line, font=font, fill=fill + (255,),
+                   stroke_width=1, stroke_fill=(0, 0, 0, 160))
+            y += int(font.size * 1.25)
+        return y
+
+    y = int(H * 0.40)
+    y = centered(title_book, bt_font, y, _hex(spec["caption"]["color"]))
+    y += int(H * 0.02)
+    d.line([(W * 0.42, y), (W * 0.58, y)], fill=accent + (220,), width=2)
+    y += int(H * 0.03)
+    chap_line = f"CHAPTER {chapter}" + (f"   ·   {title_chap.upper()}" if title_chap else "")
+    y = centered(chap_line, ch_font, y, accent)
+    if subtitle:
+        y += int(H * 0.015)
+        centered(subtitle, sub_font, y, (200, 200, 210))
+    title_png = tmp / "intro_title.png"
+    title.save(title_png)
+
+    return [(brand_png, float(intro.get("brand_seconds", 3.0))),
+            (title_png, float(intro.get("title_seconds", 4.5)))]
+
+
 # --- Compose one chapter -----------------------------------------------------
 
 def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
@@ -298,7 +395,12 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
 
     tmp = Path(tempfile.mkdtemp(prefix=f"woh_cine_c{chapter}_"))
     try:
-        cap_mov = build_caption_track(captions, total, spec, fps, tmp, W, H)
+        intro_cfg = spec.get("intro", {})
+        intro_on = bool(intro_cfg.get("enabled", True))
+        intro_cards = build_intro_cards(spec, book, lang, chapter, tmp, W, H) if intro_on else []
+        intro_total = sum(d for _, d in intro_cards)  # the chapter (scene 0) starts here
+
+        cap_mov = build_caption_track(captions, total, spec, fps, tmp, W, H, offset=intro_total)
         wm = build_watermark(tmp, spec, W, H)
 
         # --- inputs ---
@@ -337,34 +439,50 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
         cap_idx, wm_idx, voice_idx = ncap, ncap + 1, ncap + 2
         amb_idx = ncap + 3 if has_ambient else None
 
-        # --- video filtergraph ---
-        fc = list(seg_filters)
-        if len(scenes) == 1:
-            fc.append("[v0]copy[vslide]")
+        # intro card inputs (added after the audio inputs)
+        intro_seg, intro_labels = [], []
+        next_idx = (ncap + 4) if has_ambient else (ncap + 3)
+        for k, (png, dur) in enumerate(intro_cards):
+            cmd += ["-loop", "1", "-framerate", str(fps), "-t", f"{dur + xfade:.3f}", "-i", str(png)]
+            fin = ",fade=t=in:st=0:d=0.6" if k == 0 else ""   # fade up from black
+            intro_seg.append(f"[{next_idx}:v]scale={W}:{H},setsar=1{fin},format=yuv420p[iv{k}]")
+            off = None if k == 0 else sum(d for _, d in intro_cards[:k])
+            intro_labels.append((f"iv{k}", off))
+            next_idx += 1
+
+        # --- video filtergraph: intro cards then the scene xfade chain ---
+        # `clips` = ordered (label, transition-offset); offset is the absolute
+        # time the crossfade INTO that clip begins. Scenes shift by intro_total.
+        fc = list(seg_filters) + intro_seg
+        clips = list(intro_labels)
+        clips += [(f"v{i}", intro_total + float(scenes[i]["start"])) for i in range(len(scenes))]
+        prev = clips[0][0]
+        if len(clips) == 1:
+            fc.append(f"[{prev}]copy[vslide]")
         else:
-            prev = "v0"
-            for i in range(1, len(scenes)):
-                off = float(scenes[i]["start"])
-                out = f"x{i}" if i < len(scenes) - 1 else "vslide"
-                fc.append(
-                    f"[{prev}][v{i}]xfade=transition=fade:duration={xfade}:offset={off:.3f}[{out}]"
-                )
+            for k in range(1, len(clips)):
+                label, off = clips[k]
+                out = "vslide" if k == len(clips) - 1 else f"x{k}"
+                fc.append(f"[{prev}][{label}]xfade=transition=fade:duration={xfade}:offset={off:.3f}[{out}]")
                 prev = out
 
         vig = ",vignette" if spec.get("overlay", {}).get("vignette") else ""
         fc.append(f"[vslide]format=yuv420p{vig}[vvig]")
         fc.append(f"[vvig][{cap_idx}:v]overlay=0:0:format=auto[vcap]")
-        fc.append(f"[vcap][{wm_idx}:v]overlay=0:0:format=auto,format=yuv420p[vout]")
+        wm_en = f":enable='gte(t,{intro_total:.3f})'" if intro_total > 0 else ""
+        fc.append(f"[vcap][{wm_idx}:v]overlay=0:0:format=auto{wm_en},format=yuv420p[vout]")
 
-        # --- audio ---
+        # --- audio (delayed behind the intro so narration starts with ch.1) ---
+        d_ms = int(round(intro_total * 1000))
+        ad = f"adelay={d_ms}:all=1," if d_ms > 0 else ""
         if has_ambient:
             fc.append(
-                f"[{voice_idx}:a]volume=1.0[va];[{amb_idx}:a]volume=0.30[aa];"
+                f"[{voice_idx}:a]{ad}volume=1.0[va];[{amb_idx}:a]{ad}volume=0.30[aa];"
                 f"[va][aa]amix=inputs=2:duration=longest:normalize=0[aout]"
             )
-            amap = "[aout]"
         else:
-            amap = f"{voice_idx}:a"
+            fc.append(f"[{voice_idx}:a]{ad}volume=1.0[aout]")
+        amap = "[aout]"
 
         cmd += ["-filter_complex", ";".join(fc),
                 "-map", "[vout]", "-map", amap,
@@ -372,7 +490,7 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
                 "-crf", str(out_spec["crf"]), "-pix_fmt", out_spec["pix_fmt"],
                 "-r", str(fps),
                 "-c:a", "aac", "-b:a", "192k",
-                "-t", f"{total:.3f}"]
+                "-t", f"{total + intro_total:.3f}"]
         if out_spec.get("faststart"):
             cmd += ["-movflags", "+faststart"]
 

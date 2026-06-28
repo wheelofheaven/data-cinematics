@@ -49,6 +49,14 @@
       "active_color": "#FDE047"
     }
   },
+  "intro": {
+    "$comment": "Prepended brand card + book/chapter title card. Audio + captions are delayed behind it. Titles resolved from data-library _meta.json + the audio manifest.",
+    "enabled": true,
+    "brand_seconds": 3.0,
+    "title_seconds": 4.5,
+    "backdrop": "default",
+    "bg_color": "#05060A"
+  },
   "watermark": {
     "$comment": "Top-left brand lockup (logomark + wordmark SVGs, recolored). Mirrors the web .cinematic__brand.",
     "color": "#F4F4F5",
