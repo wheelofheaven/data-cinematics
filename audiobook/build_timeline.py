@@ -188,6 +188,33 @@ def build_scenes(timing: dict, cues: list[dict], default_scene: str = "default")
             merged[-1]["end"] = seg["end"]
         else:
             merged.append(dict(seg))
+
+    # Coalesce away too-short segments so the slideshow never flips faster than
+    # the eye can settle (e.g. the ~1s 'default' pre-pause sliver before the
+    # meta-narration). A short segment is absorbed into its previous neighbour;
+    # if it's the very first segment, the next one is extended back to cover it.
+    MIN_SCENE_SEC = 2.5
+    i = 0
+    while len(merged) > 1 and i < len(merged):
+        if (merged[i]["end"] - merged[i]["start"]) >= MIN_SCENE_SEC:
+            i += 1
+            continue
+        if i > 0:
+            merged[i - 1]["end"] = merged[i]["end"]
+            merged.pop(i)
+            i = max(0, i - 1)
+        else:
+            merged[i + 1]["start"] = merged[i]["start"]
+            merged.pop(i)
+    # Re-merge any adjacent identical scenes the coalescing may have created.
+    remerged: list[dict] = []
+    for seg in merged:
+        if remerged and remerged[-1]["scene"] == seg["scene"]:
+            remerged[-1]["end"] = seg["end"]
+        else:
+            remerged.append(dict(seg))
+    merged = remerged
+
     for seg in merged:
         seg["start"] = round(seg["start"], 3)
         seg["end"] = round(seg["end"], 3)

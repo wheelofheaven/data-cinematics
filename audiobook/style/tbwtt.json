@@ -61,21 +61,29 @@
     "jingle_fade_out": 1.5
   },
   "outro": {
-    "$comment": "Closing credits card over the hero image, appended after the chapter; the score bed carries through and fades out. {book_title} is substituted from _meta.json.",
+    "$comment": "Closing credits card over the hero image, appended after the chapter; the score bed carries through and fades out. Placeholders {book_title}/{subtitle}/{author}/{chapter_of_n}/{chapter_title} are substituted in code.",
     "enabled": true,
-    "seconds": 9.0,
+    "seconds": 11.0,
     "backdrop": "intro-hero",
     "author": "Raël",
     "credits": [
       {"role": "title", "text": "{book_title}"},
-      {"role": "byline", "text": "by {author}"},
-      {"role": "line", "text": "A Wheel of Heaven production"},
-      {"role": "url", "text": "wheelofheaven.world"},
+      {"role": "subtitle", "text": "{subtitle}"},
+      {"role": "chapter", "text": "{chapter_of_n} · {chapter_title}"},
+      {"role": "byline", "text": "Written by {author} · A Wheel of Heaven production"},
+      {"role": "url", "text": "www.wheelofheaven.world"},
+      {"role": "cta", "text": "The full audiobook releases chapter by chapter — subscribe to follow the series."},
       {"role": "fine", "text": "Narration synthesized with ElevenLabs · Imagery AI-generated · Released under CC0 1.0"}
     ]
   },
+  "endcard": {
+    "$comment": "Up-next teaser slide after the outro, when a next chapter exists. Hero backdrop + 'NEXT' + the next chapter title. Skipped on the final chapter.",
+    "enabled": true,
+    "seconds": 6.0,
+    "backdrop": "intro-hero"
+  },
   "thumbnail": {
-    "$comment": "YouTube thumbnail (1280x720) per chapter: hero backdrop + title + chapter + logomark. Written next to the mp4 as c{n}.{lang}.thumb.jpg.",
+    "$comment": "YouTube thumbnail (1280x720) per chapter: hero backdrop + title + chapter-of-N + logomark. Written next to the mp4 as c{n}.{lang}.thumb.jpg.",
     "enabled": true,
     "backdrop": "intro-hero"
   },
@@ -91,11 +99,11 @@
   "watermark": {
     "$comment": "Top-left brand lockup (logomark + wordmark SVGs, recolored). Mirrors the web .cinematic__brand.",
     "color": "#F4F4F5",
-    "mark_height": 32,
-    "wordmark_height": 18,
-    "gap": 12,
-    "pad_x": 40,
-    "pad_y": 34
+    "mark_height": 48,
+    "wordmark_height": 27,
+    "gap": 15,
+    "pad_x": 44,
+    "pad_y": 38
   },
   "overlay": {
     "vignette": true,

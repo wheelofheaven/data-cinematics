@@ -56,6 +56,51 @@ STYLE_DIR = Path(__file__).resolve().parent / "style"
 OUT_DIR = Path(__file__).resolve().parent / "out"
 BRAND_DIR = Path(__file__).resolve().parent / "brand"  # logomark.svg + wordmark.svg (mirror bifrost)
 SCORE_DIR = Path(__file__).resolve().parent / "score"  # subtle musical bed(s), video-export only
+WIKI_DIR = ASSETS / "images" / "wiki"  # established character portraits
+
+# Speaker -> portrait basename (in WIKI_DIR). Narrator IS Raël (the author
+# looking back), so they share the likeness. The meta voice (AudioplayNarrator,
+# kind=intro) shows no label, so it needs no portrait.
+SPEAKER_PORTRAIT = {
+    "Yahweh": "yahweh-eloha_thumb.webp",
+    "Raël": "rael-claude-vorilhon_thumb.webp",
+    "Rael": "rael-claude-vorilhon_thumb.webp",
+    "Narrator": "rael-claude-vorilhon_thumb.webp",
+}
+_portrait_cache: dict = {}
+
+
+def circle_portrait(speaker, diameter):
+    """Return a circular RGBA portrait for a speaker at the given diameter, or
+    None. Cached by (speaker, diameter)."""
+    key = (speaker, diameter)
+    if key in _portrait_cache:
+        return _portrait_cache[key]
+    name = SPEAKER_PORTRAIT.get(speaker)
+    p = (WIKI_DIR / name) if name else None
+    out = None
+    if p and p.exists():
+        try:
+            im = Image.open(p).convert("RGB")
+            sc = max(diameter / im.width, diameter / im.height)
+            im = im.resize((max(1, int(im.width * sc)), max(1, int(im.height * sc))))
+            im = im.crop(((im.width - diameter) // 2, (im.height - diameter) // 2,
+                          (im.width - diameter) // 2 + diameter,
+                          (im.height - diameter) // 2 + diameter)).convert("RGBA")
+            mask = Image.new("L", (diameter, diameter), 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, diameter - 1, diameter - 1), fill=255)
+            im.putalpha(mask)
+            # thin accent ring
+            ring = Image.new("RGBA", (diameter, diameter), (0, 0, 0, 0))
+            rd = ImageDraw.Draw(ring)
+            rd.ellipse((1, 1, diameter - 2, diameter - 2), outline=(244, 244, 245, 230),
+                       width=max(2, diameter // 40))
+            im.alpha_composite(ring)
+            out = im
+        except Exception:
+            out = None
+    _portrait_cache[key] = out
+    return out
 
 # Caption font: the web cinematic caption uses --font-family-lead (Space
 # Grotesk). Match it; fall back to a common sans if absent.
@@ -108,7 +153,9 @@ def render_caption_png(cap, show_speaker, spec, font, speaker_font, out_path, W,
     line_h = int(c["font_size"] * c["line_height"])
     lines = wrap_lines(d, cap["text"], font, max_w)
 
-    speaker_h = int(speaker_font.size * 1.8) if show_speaker else 0
+    avatar_d = int(speaker_font.size * 2.2) if show_speaker else 0
+    avatar = circle_portrait(cap.get("speaker", ""), avatar_d) if show_speaker else None
+    speaker_h = max(int(speaker_font.size * 1.8), avatar_d + int(speaker_font.size * 0.5)) if show_speaker else 0
 
     block_h = line_h * len(lines) + speaker_h
     # Bottom of the text block sits at the safe-area line.
@@ -123,9 +170,16 @@ def render_caption_png(cap, show_speaker, spec, font, speaker_font, out_path, W,
         sp = cap["speaker"].upper()
         spc = tuple(int(c["speaker_label"]["color"].lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + (255,)
         spw = d.textlength(sp, font=speaker_font)
-        # soft shadow + fill
-        d.text(((W - spw) / 2 + 2, y + 2), sp, font=speaker_font, fill=(0, 0, 0, 160))
-        d.text(((W - spw) / 2, y), sp, font=speaker_font, fill=spc,
+        gap = int(speaker_font.size * 0.5) if avatar else 0
+        group_w = (avatar.width + gap if avatar else 0) + spw
+        gx = (W - group_w) / 2
+        row_cy = y + speaker_h / 2          # vertical centre of the speaker row
+        if avatar:
+            img.alpha_composite(avatar, (int(gx), int(row_cy - avatar.height / 2)))
+            gx += avatar.width + gap
+        ty = row_cy - speaker_font.size * 0.62
+        d.text((gx + 2, ty + 2), sp, font=speaker_font, fill=(0, 0, 0, 160))
+        d.text((gx, ty), sp, font=speaker_font, fill=spc,
                stroke_width=2, stroke_fill=(0, 0, 0, 200))
         y += speaker_h
 
@@ -152,13 +206,19 @@ def build_caption_track(captions, total, spec, fps, tmp, W, H, offset=0.0):
     transparent = tmp / "blank.png"
     Image.new("RGBA", (W, H), (0, 0, 0, 0)).save(transparent)
 
+    # Optional global nudge (seconds; negative = captions appear earlier). The
+    # pipeline aligns captions to the audio by construction, so this defaults to
+    # 0 — a safety valve if a perceived lag needs trimming.
+    coff = float(c.get("offset_sec", 0.0))
+
     entries = []  # (file, duration)
     if offset > 0:
         entries.append((transparent, offset))
     cursor = 0.0
     prev_speaker = None
     for i, cap in enumerate(captions):
-        start, end = float(cap["start"]), float(cap["end"])
+        start = max(0.0, float(cap["start"]) + coff)
+        end = max(start + 0.05, float(cap["end"]) + coff)
         if end > total:
             end = total
         if start >= total:
@@ -174,8 +234,9 @@ def build_caption_track(captions, total, spec, fps, tmp, W, H, offset=0.0):
         render_caption_png(cap, show_speaker, spec, font, sp_font, png, W, H)
         entries.append((png, max(0.05, end - start)))
         cursor = end
-    if cursor < total:
-        entries.append((transparent, total - cursor))
+    # Always end on a transparent frame so the final caption is never the
+    # held last frame (which would bleed over the outro during the crossfade).
+    entries.append((transparent, max(0.3, total - cursor)))
 
     listfile = tmp / "captions.concat"
     with open(listfile, "w") as f:
@@ -307,6 +368,33 @@ def resolve_titles(book, lang, chapter):
     return book_title, subtitle, chapter_title
 
 
+# "Chapter N of M" label, localized. Falls back to the plain CHAPTER_LABEL when
+# the total count is unknown.
+CHAPTER_OF_LABEL = {
+    "en": "CHAPTER {n} OF {m}", "fr": "CHAPITRE {n} SUR {m}", "de": "KAPITEL {n} VON {m}",
+    "es": "CAPÍTULO {n} DE {m}", "ru": "ГЛАВА {n} ИЗ {m}", "ja": "第{n}章／全{m}章",
+    "ko": "{m}장 중 제{n}장", "zh": "第{n}章／共{m}章", "zh-Hant": "第{n}章／共{m}章",
+    "he": "פרק {n} מתוך {m}",
+}
+
+
+def resolve_chapter_count(book):
+    meta = REPO / "data-library" / book / "_meta.json"
+    if meta.exists():
+        try:
+            return int(json.loads(meta.read_text()).get("chapterCount") or 0)
+        except (ValueError, json.JSONDecodeError):
+            pass
+    return 0
+
+
+def chapter_label(lang, n, m):
+    """'CHAPTER N OF M' (localized) when m is known, else 'CHAPTER N'."""
+    if m and m > 0:
+        return CHAPTER_OF_LABEL.get(lang, CHAPTER_OF_LABEL["en"]).format(n=n, m=m)
+    return CHAPTER_LABEL.get(lang, CHAPTER_LABEL["en"]).format(n=n)
+
+
 def build_intro_cards(spec, book, lang, chapter, tmp, W, H):
     """Render the brand card + the book/chapter title card. Returns a list of
     (png_path, seconds)."""
@@ -362,7 +450,7 @@ def build_intro_cards(spec, book, lang, chapter, tmp, W, H):
     y += int(H * 0.02)
     d.line([(W * 0.42, y), (W * 0.58, y)], fill=accent + (220,), width=2)
     y += int(H * 0.03)
-    chap_word = CHAPTER_LABEL.get(lang, CHAPTER_LABEL["en"]).format(n=chapter)
+    chap_word = chapter_label(lang, chapter, resolve_chapter_count(book))
     chap_line = chap_word + (f"   ·   {title_chap.upper()}" if title_chap else "")
     y = centered(chap_line, ch_font, y, accent)
     if subtitle:
@@ -390,8 +478,12 @@ def build_outro_card(spec, book, lang, chapter, tmp, W, H):
     if not outro.get("enabled", False):
         return None
     bg = _hex(spec.get("intro", {}).get("bg_color", "#05060a"))
-    title_book, _subtitle, _chap = resolve_titles(book, lang, chapter)
-    subs = {"book_title": title_book, "author": outro.get("author", "")}
+    title_book, subtitle, title_chap = resolve_titles(book, lang, chapter)
+    count = resolve_chapter_count(book)
+    subs = {"book_title": title_book, "author": outro.get("author", ""),
+            "subtitle": subtitle or "",
+            "chapter_of_n": chapter_label(lang, chapter, count),
+            "chapter_title": title_chap or ""}
 
     card = Image.new("RGBA", (W, H), bg + (255,))
     bd = resolve_image(book, outro.get("backdrop", "intro-hero"))
@@ -406,22 +498,25 @@ def build_outro_card(spec, book, lang, chapter, tmp, W, H):
     accent = _hex(spec["caption"]["speaker_label"]["color"])
     text_col = _hex(spec["caption"]["color"])
     styles = {  # role -> (rel_size, weight, color)
-        "title":  (0.058, 600, text_col),
-        "byline": (0.030, 400, accent),
-        "line":   (0.028, 500, (215, 215, 225)),
-        "url":    (0.026, 600, accent),
-        "fine":   (0.018, 400, (150, 150, 160)),
+        "title":    (0.052, 600, text_col),
+        "subtitle": (0.024, 400, (200, 200, 210)),
+        "chapter":  (0.026, 600, accent),
+        "byline":   (0.026, 400, (215, 215, 225)),
+        "line":     (0.028, 500, (215, 215, 225)),
+        "url":      (0.028, 600, accent),
+        "cta":      (0.022, 500, (208, 208, 220)),
+        "fine":     (0.017, 400, (150, 150, 160)),
     }
-    y = int(H * 0.40)
+    y = int(H * 0.34)
     for item in outro.get("credits", []):
         role = item.get("role", "line")
         rel, weight, col = styles.get(role, styles["line"])
-        text = item.get("text", "").format(**subs).strip()
+        text = item.get("text", "").format(**subs).strip(" ·")
         if not text:
             continue
         font = load_font(font_path, int(H * rel), weight)
-        if role == "fine":
-            y += int(H * 0.03)
+        if role in ("byline", "cta", "fine"):
+            y += int(H * 0.025)
         for line in wrap_lines(d, text, font, int(W * 0.82)):
             lw = d.textlength(line, font=font)
             d.text(((W - lw) / 2, y), line, font=font, fill=col + (255,),
@@ -431,6 +526,70 @@ def build_outro_card(spec, book, lang, chapter, tmp, W, H):
     out_png = tmp / "outro.png"
     card.save(out_png)
     return out_png, float(outro.get("seconds", 8.0))
+
+
+_NEXT_WORD = {"en": "NEXT", "fr": "À SUIVRE", "de": "ALS NÄCHSTES", "es": "A CONTINUACIÓN",
+              "ru": "ДАЛЕЕ", "ja": "次回", "ko": "다음 편", "zh": "下一章", "zh-Hant": "下一章",
+              "he": "בהמשך"}
+
+
+def build_endcard(spec, book, lang, chapter, tmp, W, H):
+    """Up-next teaser for the next chapter over the hero. Returns (png, seconds),
+    or None if disabled or this is the final chapter."""
+    ec = spec.get("endcard", {})
+    if not ec.get("enabled", False):
+        return None
+    count = resolve_chapter_count(book)
+    nxt = chapter + 1
+    if count and nxt > count:
+        return None   # final chapter — nothing to tease
+    _bt, _sub, next_title = resolve_titles(book, lang, nxt)
+    bg = _hex(spec.get("intro", {}).get("bg_color", "#05060a"))
+    card = Image.new("RGBA", (W, H), bg + (255,))
+    bd = resolve_image(book, ec.get("backdrop", "intro-hero"))
+    if bd:
+        card.alpha_composite(_cover(Image.open(bd).convert("RGB"), W, H).convert("RGBA"))
+        card.alpha_composite(Image.new("RGBA", (W, H), (0, 0, 0, 165)))
+    d = ImageDraw.Draw(card)
+    font_path = find_font()
+    accent = _hex(spec["caption"]["speaker_label"]["color"])
+    text_col = _hex(spec["caption"]["color"])
+    eyebrow = load_font(font_path, int(H * 0.030), 600)
+    cf = load_font(font_path, int(H * 0.034), 600)
+    nf = load_font(font_path, int(H * 0.060), 600)
+
+    def center(text, font, y, fill):
+        for line in wrap_lines(d, text, font, int(W * 0.8)):
+            lw = d.textlength(line, font=font)
+            d.text(((W - lw) / 2, y), line, font=font, fill=fill + (255,),
+                   stroke_width=1, stroke_fill=(0, 0, 0, 160))
+            y += int(font.size * 1.25)
+        return y
+
+    y = int(H * 0.34)
+    # small filled play-triangle to the left of the eyebrow (Space Grotesk has
+    # no ▶ glyph, so draw it instead of using the character)
+    nxt_word = _NEXT_WORD.get(lang, "NEXT")
+    ew = d.textlength(nxt_word, font=eyebrow)
+    tri = int(eyebrow.size * 0.7)
+    gap = int(eyebrow.size * 0.4)
+    gx = (W - (tri + gap + ew)) / 2
+    tri_y = y + (eyebrow.size - tri) / 2 + eyebrow.size * 0.12
+    d.polygon([(gx, tri_y), (gx, tri_y + tri), (gx + tri * 0.9, tri_y + tri / 2)],
+              fill=accent + (255,))
+    d.text((gx + tri + gap, y), nxt_word, font=eyebrow, fill=accent + (255,),
+           stroke_width=1, stroke_fill=(0, 0, 0, 160))
+    y += int(eyebrow.size * 1.25)
+    y += int(H * 0.02)
+    y = center(chapter_label(lang, nxt, count), cf, y, text_col)
+    y += int(H * 0.01)
+    if next_title:
+        center(next_title, nf, y, text_col)
+    mark = _rasterize_svg(BRAND_DIR / "logomark.svg", int(H * 0.07), tmp, "#f4f4f5")
+    card.alpha_composite(mark, (int(W / 2 - mark.width / 2), int(H * 0.80)))
+    out_png = tmp / "endcard.png"
+    card.save(out_png)
+    return out_png, float(ec.get("seconds", 6.0))
 
 
 def build_thumbnail(spec, book, lang, chapter, out_path):
@@ -469,7 +628,7 @@ def build_thumbnail(spec, book, lang, chapter, out_path):
             d.text((x, y), line, font=bt_font, fill=text_col + (255,),
                    stroke_width=2, stroke_fill=(0, 0, 0, 200))
             y += int(bt_font.size * 1.15)
-        chap_word = CHAPTER_LABEL.get(lang, CHAPTER_LABEL["en"]).format(n=chapter)
+        chap_word = chapter_label(lang, chapter, resolve_chapter_count(book))
         chap_line = chap_word + (f" · {title_chap.upper()}" if title_chap else "")
         y += int(H * 0.02)
         d.text((x, y), chap_line, font=ch_font, fill=accent + (255,),
@@ -529,6 +688,9 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
 
         outro_card = build_outro_card(spec, book, lang, chapter, tmp, W, H)
         outro_total = outro_card[1] if outro_card else 0.0
+        endcard = build_endcard(spec, book, lang, chapter, tmp, W, H)
+        endcard_total = endcard[1] if endcard else 0.0
+        tail_total = outro_total + endcard_total   # everything after the chapter
 
         jingle_file = intro_cfg.get("jingle")
         jingle_path = (SCORE_DIR / jingle_file) if jingle_file else None
@@ -598,6 +760,15 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
             next_idx += 1
             outro_seg.append(f"[{outro_idx}:v]scale={W}:{H},setsar=1,format=yuv420p[ovid]")
 
+        # endcard input (up-next teaser, after the outro)
+        endcard_seg, endcard_idx = [], None
+        if endcard:
+            cmd += ["-loop", "1", "-framerate", str(fps), "-t", f"{endcard_total + xfade:.3f}",
+                    "-i", str(endcard[0])]
+            endcard_idx = next_idx
+            next_idx += 1
+            endcard_seg.append(f"[{endcard_idx}:v]scale={W}:{H},setsar=1,format=yuv420p[evid]")
+
         # jingle input (the brand-card sting)
         jingle_idx = None
         if has_jingle:
@@ -615,11 +786,13 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
         # --- video filtergraph: intro cards then the scene xfade chain ---
         # `clips` = ordered (label, transition-offset); offset is the absolute
         # time the crossfade INTO that clip begins. Scenes shift by intro_total.
-        fc = list(seg_filters) + intro_seg + outro_seg
+        fc = list(seg_filters) + intro_seg + outro_seg + endcard_seg
         clips = list(intro_labels)
         clips += [(f"v{i}", intro_total + float(scenes[i]["start"])) for i in range(len(scenes))]
         if outro_card:
             clips += [("ovid", intro_total + total)]   # xfades in as the chapter ends
+        if endcard:
+            clips += [("evid", intro_total + total + outro_total)]   # up-next, after the outro
         prev = clips[0][0]
         if len(clips) == 1:
             fc.append(f"[{prev}]copy[vslide]")
@@ -653,7 +826,7 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
             fc.append(f"[{amb_idx}:a]{ad}volume=0.30[aa]")
             parts.append("[aa]")
         if has_score:
-            end = total + intro_total + outro_total   # score carries through the outro
+            end = total + intro_total + tail_total   # score carries through outro + endcard
             sg = float(score_cfg.get("gain", 0.12))
             ig = float(score_cfg.get("intro_gain", max(sg, 0.28)))
             fin = float(score_cfg.get("fade_in", 2.0))
@@ -698,7 +871,7 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
                 "-crf", str(out_spec["crf"]), "-pix_fmt", out_spec["pix_fmt"],
                 "-r", str(fps),
                 "-c:a", "aac", "-b:a", "192k",
-                "-t", f"{total + intro_total + outro_total:.3f}"]
+                "-t", f"{total + intro_total + tail_total:.3f}"]
         if out_spec.get("faststart"):
             cmd += ["-movflags", "+faststart"]
 
