@@ -4,7 +4,7 @@
   "output": {
     "width": 1920,
     "height": 1080,
-    "fps": 30,
+    "fps": 60,
     "video_codec": "libx264",
     "crf": 18,
     "preset": "slow",
@@ -52,10 +52,32 @@
   "intro": {
     "$comment": "Prepended brand card + book/chapter title card. Audio + captions are delayed behind it. Titles resolved from data-library _meta.json + the audio manifest.",
     "enabled": true,
-    "brand_seconds": 3.0,
+    "brand_seconds": 5.0,
     "title_seconds": 4.5,
-    "backdrop": "default",
-    "bg_color": "#05060A"
+    "backdrop": "intro-hero",
+    "bg_color": "#05060A",
+    "jingle": "brand-sting.opus",
+    "jingle_gain": 0.9,
+    "jingle_fade_out": 1.5
+  },
+  "outro": {
+    "$comment": "Closing credits card over the hero image, appended after the chapter; the score bed carries through and fades out. {book_title} is substituted from _meta.json.",
+    "enabled": true,
+    "seconds": 9.0,
+    "backdrop": "intro-hero",
+    "author": "Raël",
+    "credits": [
+      {"role": "title", "text": "{book_title}"},
+      {"role": "byline", "text": "by {author}"},
+      {"role": "line", "text": "A Wheel of Heaven production"},
+      {"role": "url", "text": "wheelofheaven.world"},
+      {"role": "fine", "text": "Narration synthesized with ElevenLabs · Imagery AI-generated · Released under CC0 1.0"}
+    ]
+  },
+  "thumbnail": {
+    "$comment": "YouTube thumbnail (1280x720) per chapter: hero backdrop + title + chapter + logomark. Written next to the mp4 as c{n}.{lang}.thumb.jpg.",
+    "enabled": true,
+    "backdrop": "intro-hero"
   },
   "score": {
     "$comment": "Subtle musical underscore — VIDEO EXPORT ONLY, never in the web player. Loops under voice + ambient SFX from t=0 (plays beneath the intro cards too). Generate with generate_score.py.",

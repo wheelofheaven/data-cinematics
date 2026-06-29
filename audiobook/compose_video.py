@@ -375,6 +375,111 @@ def build_intro_cards(spec, book, lang, chapter, tmp, W, H):
             (title_png, float(intro.get("title_seconds", 4.5)))]
 
 
+def _cover(im, W, H):
+    """Scale-cover an RGB image to WxH (center crop)."""
+    sc = max(W / im.width, H / im.height)
+    im = im.resize((max(1, int(im.width * sc)), max(1, int(im.height * sc))))
+    x, y = (im.width - W) // 2, (im.height - H) // 2
+    return im.crop((x, y, x + W, y + H))
+
+
+def build_outro_card(spec, book, lang, chapter, tmp, W, H):
+    """Render the closing credits card over the (dimmed) hero. Returns
+    (png_path, seconds) or None if disabled."""
+    outro = spec.get("outro", {})
+    if not outro.get("enabled", False):
+        return None
+    bg = _hex(spec.get("intro", {}).get("bg_color", "#05060a"))
+    title_book, _subtitle, _chap = resolve_titles(book, lang, chapter)
+    subs = {"book_title": title_book, "author": outro.get("author", "")}
+
+    card = Image.new("RGBA", (W, H), bg + (255,))
+    bd = resolve_image(book, outro.get("backdrop", "intro-hero"))
+    if bd:
+        card.alpha_composite(_cover(Image.open(bd).convert("RGB"), W, H).convert("RGBA"))
+        card.alpha_composite(Image.new("RGBA", (W, H), (0, 0, 0, 185)))  # heavier scrim
+    d = ImageDraw.Draw(card)
+    mark = _rasterize_svg(BRAND_DIR / "logomark.svg", int(H * 0.085), tmp, "#f4f4f5")
+    card.alpha_composite(mark, (int(W / 2 - mark.width / 2), int(H * 0.18)))
+
+    font_path = find_font()
+    accent = _hex(spec["caption"]["speaker_label"]["color"])
+    text_col = _hex(spec["caption"]["color"])
+    styles = {  # role -> (rel_size, weight, color)
+        "title":  (0.058, 600, text_col),
+        "byline": (0.030, 400, accent),
+        "line":   (0.028, 500, (215, 215, 225)),
+        "url":    (0.026, 600, accent),
+        "fine":   (0.018, 400, (150, 150, 160)),
+    }
+    y = int(H * 0.40)
+    for item in outro.get("credits", []):
+        role = item.get("role", "line")
+        rel, weight, col = styles.get(role, styles["line"])
+        text = item.get("text", "").format(**subs).strip()
+        if not text:
+            continue
+        font = load_font(font_path, int(H * rel), weight)
+        if role == "fine":
+            y += int(H * 0.03)
+        for line in wrap_lines(d, text, font, int(W * 0.82)):
+            lw = d.textlength(line, font=font)
+            d.text(((W - lw) / 2, y), line, font=font, fill=col + (255,),
+                   stroke_width=1, stroke_fill=(0, 0, 0, 160))
+            y += int(font.size * 1.3)
+        y += int(H * 0.012)
+    out_png = tmp / "outro.png"
+    card.save(out_png)
+    return out_png, float(outro.get("seconds", 8.0))
+
+
+def build_thumbnail(spec, book, lang, chapter, out_path):
+    """Render a 1280x720 YouTube thumbnail: hero + title + chapter + logomark."""
+    thumb = spec.get("thumbnail", {})
+    if not thumb.get("enabled", False):
+        return None
+    W, H = 1280, 720
+    bg = _hex(spec.get("intro", {}).get("bg_color", "#05060a"))
+    title_book, _sub, title_chap = resolve_titles(book, lang, chapter)
+    tmp = Path(tempfile.mkdtemp(prefix="woh_thumb_"))
+    try:
+        card = Image.new("RGBA", (W, H), bg + (255,))
+        bd = resolve_image(book, thumb.get("backdrop", "intro-hero"))
+        if bd:
+            card.alpha_composite(_cover(Image.open(bd).convert("RGB"), W, H).convert("RGBA"))
+        # left-weighted gradient scrim for text legibility
+        grad = Image.new("L", (W, 1))
+        for x in range(W):
+            grad.putpixel((x, 0), int(200 * max(0, 1 - x / (W * 0.7))))
+        scrim = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        scrim.putalpha(grad.resize((W, H)))
+        card.alpha_composite(Image.composite(Image.new("RGBA", (W, H), (5, 6, 10, 255)),
+                                             Image.new("RGBA", (W, H), (0, 0, 0, 0)), scrim))
+        d = ImageDraw.Draw(card)
+        font_path = find_font()
+        accent = _hex(spec["caption"]["speaker_label"]["color"])
+        text_col = _hex(spec["caption"]["color"])
+        mark = _rasterize_svg(BRAND_DIR / "logomark.svg", int(H * 0.11), tmp, "#f4f4f5")
+        card.alpha_composite(mark, (int(W * 0.06), int(H * 0.10)))
+        bt_font = load_font(font_path, int(H * 0.11), 600)
+        ch_font = load_font(font_path, int(H * 0.05), 600)
+        x = int(W * 0.06)
+        y = int(H * 0.40)
+        for line in wrap_lines(d, title_book, bt_font, int(W * 0.62)):
+            d.text((x, y), line, font=bt_font, fill=text_col + (255,),
+                   stroke_width=2, stroke_fill=(0, 0, 0, 200))
+            y += int(bt_font.size * 1.15)
+        chap_word = CHAPTER_LABEL.get(lang, CHAPTER_LABEL["en"]).format(n=chapter)
+        chap_line = chap_word + (f" · {title_chap.upper()}" if title_chap else "")
+        y += int(H * 0.02)
+        d.text((x, y), chap_line, font=ch_font, fill=accent + (255,),
+               stroke_width=1, stroke_fill=(0, 0, 0, 180))
+        card.convert("RGB").save(out_path, quality=90)
+        return out_path
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 # --- Compose one chapter -----------------------------------------------------
 
 def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
@@ -421,6 +526,13 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
         intro_on = bool(intro_cfg.get("enabled", True))
         intro_cards = build_intro_cards(spec, book, lang, chapter, tmp, W, H) if intro_on else []
         intro_total = sum(d for _, d in intro_cards)  # the chapter (scene 0) starts here
+
+        outro_card = build_outro_card(spec, book, lang, chapter, tmp, W, H)
+        outro_total = outro_card[1] if outro_card else 0.0
+
+        jingle_file = intro_cfg.get("jingle")
+        jingle_path = (SCORE_DIR / jingle_file) if jingle_file else None
+        has_jingle = bool(intro_cards) and jingle_path and jingle_path.exists()
 
         cap_mov = build_caption_track(captions, total, spec, fps, tmp, W, H, offset=intro_total)
         wm = build_watermark(tmp, spec, W, H)
@@ -477,6 +589,22 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
             intro_labels.append((f"iv{k}", off))
             next_idx += 1
 
+        # outro card input (still image, appended after the chapter)
+        outro_seg, outro_idx = [], None
+        if outro_card:
+            cmd += ["-loop", "1", "-framerate", str(fps), "-t", f"{outro_total + xfade:.3f}",
+                    "-i", str(outro_card[0])]
+            outro_idx = next_idx
+            next_idx += 1
+            outro_seg.append(f"[{outro_idx}:v]scale={W}:{H},setsar=1,format=yuv420p[ovid]")
+
+        # jingle input (the brand-card sting)
+        jingle_idx = None
+        if has_jingle:
+            cmd += ["-i", str(jingle_path)]
+            jingle_idx = next_idx
+            next_idx += 1
+
         # score input (looped to fill the whole video, trimmed in the graph)
         score_idx = None
         if has_score:
@@ -487,9 +615,11 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
         # --- video filtergraph: intro cards then the scene xfade chain ---
         # `clips` = ordered (label, transition-offset); offset is the absolute
         # time the crossfade INTO that clip begins. Scenes shift by intro_total.
-        fc = list(seg_filters) + intro_seg
+        fc = list(seg_filters) + intro_seg + outro_seg
         clips = list(intro_labels)
         clips += [(f"v{i}", intro_total + float(scenes[i]["start"])) for i in range(len(scenes))]
+        if outro_card:
+            clips += [("ovid", intro_total + total)]   # xfades in as the chapter ends
         prev = clips[0][0]
         if len(clips) == 1:
             fc.append(f"[{prev}]copy[vslide]")
@@ -502,8 +632,13 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
 
         vig = ",vignette" if spec.get("overlay", {}).get("vignette") else ""
         fc.append(f"[vslide]format=yuv420p{vig}[vvig]")
-        fc.append(f"[vvig][{cap_idx}:v]overlay=0:0:format=auto[vcap]")
-        wm_en = f":enable='gte(t,{intro_total:.3f})'" if intro_total > 0 else ""
+        fc.append(f"[vvig][{cap_idx}:v]overlay=0:0:format=auto:eof_action=pass[vcap]")
+        # watermark only over the chapter body — not the intro cards or the outro
+        chap_end = intro_total + total
+        if intro_total > 0 or outro_total > 0:
+            wm_en = f":enable='between(t,{intro_total:.3f},{chap_end:.3f})'"
+        else:
+            wm_en = ""
         fc.append(f"[vcap][{wm_idx}:v]overlay=0:0:format=auto{wm_en},format=yuv420p[vout]")
 
         # --- audio ---
@@ -518,7 +653,7 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
             fc.append(f"[{amb_idx}:a]{ad}volume=0.30[aa]")
             parts.append("[aa]")
         if has_score:
-            end = total + intro_total
+            end = total + intro_total + outro_total   # score carries through the outro
             sg = float(score_cfg.get("gain", 0.12))
             ig = float(score_cfg.get("intro_gain", max(sg, 0.28)))
             fin = float(score_cfg.get("fade_in", 2.0))
@@ -541,6 +676,16 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
                 f"afade=t=out:st={fo_start:.3f}:d={fout:.3f}[sc]"
             )
             parts.append("[sc]")
+        if has_jingle:
+            brand_sec = intro_cards[0][1]
+            jg = float(intro_cfg.get("jingle_gain", 0.9))
+            jfo = float(intro_cfg.get("jingle_fade_out", 1.5))
+            jfo_start = max(0.0, brand_sec - jfo)
+            fc.append(
+                f"[{jingle_idx}:a]atrim=0:{brand_sec:.3f},asetpts=PTS-STARTPTS,"
+                f"volume={jg},afade=t=out:st={jfo_start:.3f}:d={jfo:.3f}[jng]"
+            )
+            parts.append("[jng]")
         if len(parts) == 1:
             amap = parts[0]
         else:
@@ -553,7 +698,7 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
                 "-crf", str(out_spec["crf"]), "-pix_fmt", out_spec["pix_fmt"],
                 "-r", str(fps),
                 "-c:a", "aac", "-b:a", "192k",
-                "-t", f"{total + intro_total:.3f}"]
+                "-t", f"{total + intro_total + outro_total:.3f}"]
         if out_spec.get("faststart"):
             cmd += ["-movflags", "+faststart"]
 
@@ -566,6 +711,13 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
         print(f"  c{chapter} [{lang}]: {len(scenes)} scenes, {len(captions)} captions, "
               f"{total:.0f}s -> {out_path.name}")
         run(cmd)
+        if not preview and spec.get("thumbnail", {}).get("enabled"):
+            thumb_path = out_book / f"c{chapter}.{lang}.thumb.jpg"
+            try:
+                build_thumbnail(spec, book, lang, chapter, thumb_path)
+                print(f"    thumbnail -> {thumb_path.name}")
+            except Exception as e:
+                print(f"    thumbnail failed: {e}", file=sys.stderr)
         return out_path
     finally:
         if not keep:
