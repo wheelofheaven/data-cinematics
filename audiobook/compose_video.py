@@ -427,7 +427,12 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
 
         # --- inputs ---
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
-        scale_to = f"{int(W*2)}:{int(H*2)}"  # 2x for crisp Ken Burns
+        # Supersample factor for the Ken Burns stage. zoompan computes its
+        # crop window in this enlarged space and rounds x/y to whole pixels;
+        # the bigger the space, the smaller that rounding is at output scale,
+        # so the slow zoom glides instead of wobbling. 4x => ~0.25px jitter.
+        ss = int(spec.get("scene", {}).get("supersample", 4))
+        scale_to = f"{int(W*ss)}:{int(H*ss)}"
         seg_filters = []
         for i, s in enumerate(scenes):
             dur = (s["_end"] - float(s["start"])) + xfade
@@ -443,8 +448,8 @@ def compose_chapter(book, lang, chapter, spec, preview=None, keep=False):
                 else:
                     z = f"max({kb['zoom_to']:.3f}-{kb['zoom_to']-1:.3f}*on/{frames},1)"
                 seg_filters.append(
-                    f"[{i}:v]scale={scale_to}:force_original_aspect_ratio=increase,"
-                    f"crop={int(W*2)}:{int(H*2)},"
+                    f"[{i}:v]scale={scale_to}:force_original_aspect_ratio=increase:flags=lanczos,"
+                    f"crop={int(W*ss)}:{int(H*ss)},"
                     f"zoompan=z='{z}':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
                     f"s={W}x{H}:fps={fps},setsar=1,format=yuv420p[v{i}]"
                 )
