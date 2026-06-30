@@ -333,6 +333,19 @@ def resolve_image(book, scene_image):
     return d if d.exists() else None
 
 
+def resolve_image_first(book, *scene_ids):
+    """First existing image among scene_ids, else default.jpg (or None).
+    Lets the per-chapter thumbnail fall back to the book hero, then default."""
+    book_dir = IMAGES / book
+    for sid in scene_ids:
+        if sid:
+            p = book_dir / f"{sid}.jpg"
+            if p.exists():
+                return p
+    d = book_dir / "default.jpg"
+    return d if d.exists() else None
+
+
 # --- Intro / title cards -----------------------------------------------------
 
 def _hex(c):
@@ -546,7 +559,8 @@ def build_endcard(spec, book, lang, chapter, tmp, W, H):
     _bt, _sub, next_title = resolve_titles(book, lang, nxt)
     bg = _hex(spec.get("intro", {}).get("bg_color", "#05060a"))
     card = Image.new("RGBA", (W, H), bg + (255,))
-    bd = resolve_image(book, ec.get("backdrop", "intro-hero"))
+    # show the NEXT chapter's thumbnail key art (fall back to the book hero)
+    bd = resolve_image_first(book, f"thumb-c{nxt}", ec.get("backdrop", "intro-hero"))
     if bd:
         card.alpha_composite(_cover(Image.open(bd).convert("RGB"), W, H).convert("RGBA"))
         card.alpha_composite(Image.new("RGBA", (W, H), (0, 0, 0, 165)))
@@ -607,7 +621,8 @@ def build_thumbnail(spec, book, lang, chapter, out_path):
     tmp = Path(tempfile.mkdtemp(prefix="woh_thumb_"))
     try:
         card = Image.new("RGBA", (W, H), bg + (255,))
-        bd = resolve_image(book, thumb.get("backdrop", "intro-hero"))
+        # this chapter's own key art, falling back to the book hero, then default
+        bd = resolve_image_first(book, f"thumb-c{chapter}", thumb.get("backdrop", "intro-hero"))
         if bd:
             card.alpha_composite(_cover(Image.open(bd).convert("RGB"), W, H).convert("RGBA"))
         # left-weighted gradient scrim for text legibility
