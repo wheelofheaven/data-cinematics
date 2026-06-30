@@ -585,8 +585,12 @@ def build_endcard(spec, book, lang, chapter, tmp, W, H):
     y += int(H * 0.01)
     if next_title:
         center(next_title, nf, y, text_col)
-    mark = _rasterize_svg(BRAND_DIR / "logomark.svg", int(H * 0.07), tmp, "#f4f4f5")
-    card.alpha_composite(mark, (int(W / 2 - mark.width / 2), int(H * 0.80)))
+    # full brand lockup (logomark + wordmark), stacked, at the bottom
+    mark = _rasterize_svg(BRAND_DIR / "logomark.svg", int(H * 0.062), tmp, "#f4f4f5")
+    word = _rasterize_svg(BRAND_DIR / "wordmark.svg", int(H * 0.024), tmp, "#f4f4f5")
+    my = int(H * 0.76)
+    card.alpha_composite(mark, (int(W / 2 - mark.width / 2), my))
+    card.alpha_composite(word, (int(W / 2 - word.width / 2), my + mark.height + int(H * 0.02)))
     out_png = tmp / "endcard.png"
     card.save(out_png)
     return out_png, float(ec.get("seconds", 6.0))
